@@ -1,0 +1,11 @@
+export default function Loading() {
+  return (
+    <div className="page" aria-busy="true" aria-label="Loading Pokémon">
+      <div className="pokemon-grid">
+        {Array.from({ length: 12 }, (_, i) => (
+          <div className="skeleton" key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}

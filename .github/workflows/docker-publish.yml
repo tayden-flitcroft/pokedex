@@ -1,0 +1,138 @@
+name: Validate and Publish Container
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: pokedex-container-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY_HOST: ${{ vars.CONTAINER_REGISTRY || 'docker.taydenflitcroft.com' }}
+  IMAGE_NAME: ${{ vars.REGISTRY_IMAGE_NAME || 'pokedex' }}
+
+jobs:
+  quality:
+    name: Quality and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run project checks
+        run: |
+          npm run typecheck
+          npm test
+          npm run format:check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build and smoke test container
+        run: |
+          docker build -t pokedex:ci .
+          docker run -d --name pokedex-ci -p 3010:3000 pokedex:ci
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3010/api/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs pokedex-ci
+          exit 1
+
+  publish:
+    name: Publish private image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ${{ vars.CONTAINER_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Read registry credentials from Vault
+        uses: hashicorp/vault-action@v4.0.0
+        with:
+          url: https://vault.taydenflitcroft.com
+          token: ${{ secrets.VAULT_TOKEN }}
+          secrets: |
+            GITHUB_SECRETS/data/SHARED DOCKER_USERNAME ;
+            GITHUB_SECRETS/data/SHARED DOCKER_PASSWORD
+
+      - name: Validate publish configuration
+        shell: bash
+        run: |
+          : "${DOCKER_USERNAME:?Vault did not return DOCKER_USERNAME}"
+          : "${DOCKER_PASSWORD:?Vault did not return DOCKER_PASSWORD}"
+
+          if [[ "$REGISTRY_HOST" == *"://"* || "$REGISTRY_HOST" == */* ]]; then
+            echo "CONTAINER_REGISTRY must contain only a registry hostname and optional port." >&2
+            exit 1
+          fi
+
+          if [[ ! "$REGISTRY_HOST" =~ ^[a-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
+            echo "CONTAINER_REGISTRY is not a valid lowercase registry hostname." >&2
+            exit 1
+          fi
+
+          if [[ ! "$IMAGE_NAME" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(\/[a-z0-9]+([._-][a-z0-9]+)*)*$ ]]; then
+            echo "IMAGE_NAME must be a lowercase Docker repository path." >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to private registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY_HOST }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Publish summary
+        run: |
+          echo "### Published container" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${REGISTRY_HOST}/${IMAGE_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"

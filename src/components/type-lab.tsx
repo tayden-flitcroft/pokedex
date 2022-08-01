@@ -1,24 +1,275 @@
 'use client';
 import { useState } from 'react';
-import { ArrowRight, ArrowLeftRight, FlaskConical, Shield, Swords } from 'lucide-react';
+import {
+  ArrowRight,
+  ArrowLeftRight,
+  FlaskConical,
+  Shield,
+  Swords,
+} from 'lucide-react';
 import { TYPES, type PokemonType } from '@/lib/types';
-import { defenses, effectiveness, effectivenessLabel, type TypeChart } from '@/lib/effectiveness';
+import {
+  defenses,
+  effectiveness,
+  effectivenessLabel,
+  type TypeChart,
+} from '@/lib/effectiveness';
 import { TypeBadge } from './type-badge';
-export function TypeLab({chart,initial}:{chart:TypeChart;initial:{attack:string;defender:string;secondary:string;stab:boolean}}){
-  const [attack,setAttack]=useState(initial.attack as PokemonType);
-  const [defender,setDefender]=useState(initial.defender as PokemonType);
-  const [secondary,setSecondary]=useState(initial.secondary===initial.defender?'':initial.secondary as PokemonType|'');
-  const [stab,setStab]=useState(initial.stab);
-  function update(a:PokemonType,d:PokemonType,s:PokemonType|'',b:boolean){
-    setAttack(a);setDefender(d);setSecondary(s===d?'':s);setStab(b);
-    const params=new URLSearchParams({attack:a,defender:d});
-    if(s&&s!==d)params.set('secondary',s);
-    if(b)params.set('stab','1');
-    window.history.replaceState(null,'',`/matchup?${params}`);
+export function TypeLab({
+  chart,
+  initial,
+}: {
+  chart: TypeChart;
+  initial: {
+    attack: string;
+    defender: string;
+    secondary: string;
+    stab: boolean;
+  };
+}) {
+  const [attack, setAttack] = useState(initial.attack as PokemonType);
+  const [defender, setDefender] = useState(initial.defender as PokemonType);
+  const [secondary, setSecondary] = useState(
+    initial.secondary === initial.defender
+      ? ''
+      : (initial.secondary as PokemonType | ''),
+  );
+  const [stab, setStab] = useState(initial.stab);
+  function update(
+    a: PokemonType,
+    d: PokemonType,
+    s: PokemonType | '',
+    b: boolean,
+  ) {
+    setAttack(a);
+    setDefender(d);
+    setSecondary(s === d ? '' : s);
+    setStab(b);
+    const params = new URLSearchParams({ attack: a, defender: d });
+    if (s && s !== d) params.set('secondary', s);
+    if (b) params.set('stab', '1');
+    window.history.replaceState(null, '', `/matchup?${params}`);
   }
-  const selected=secondary?[defender,secondary]:[defender];
-  const multiplier=effectiveness(chart,attack,selected);
-  const all=defenses(chart,selected);
-  const groups=[{name:'Weak to',hint:'More damage',rows:all.filter(r=>r.multiplier>1),style:'weak'},{name:'Resists',hint:'Less damage',rows:all.filter(r=>r.multiplier>0&&r.multiplier<1),style:'resist'},{name:'Immune to',hint:'No damage',rows:all.filter(r=>r.multiplier===0),style:'immune'}];
-  return <div className="page lab-page"><div className="eyebrow"><FlaskConical size={15}/> THE TYPE LAB</div><div className="lab-heading"><div><h1>Find your <em>advantage.</em></h1><p>One move. Two defending types. Every possibility.</p></div><span className="rules-tag">Standard type chart · Gen VI onward</span></div><div className="lab-workspace"><section className="panel lab-controls"><div className="control-heading"><Swords size={18}/><h2>Attacking move</h2></div><label className="field-label" htmlFor="attack">Move type</label><select id="attack" value={attack} onChange={e=>update(e.target.value as PokemonType,defender,secondary,stab)}>{TYPES.map(t=><option value={t} key={t}>{t}</option>)}</select><div className="type-picker" aria-label="Choose attacking type">{TYPES.map(t=><button key={t} className={attack===t?'selected':''} aria-pressed={attack===t} onClick={()=>update(t,defender,secondary,stab)}><TypeBadge type={t}/></button>)}</div><label className="stab-toggle"><input type="checkbox" checked={stab} onChange={e=>update(attack,defender,secondary,e.target.checked)}/><span>Same-type attack bonus <small>Attacker shares the move’s type · 1.5×</small></span></label><div className="defending-controls"><div className="control-heading"><Shield size={18}/><h2>Defending Pokémon</h2></div><div className="defender-selects"><label>Primary type<select value={defender} onChange={e=>update(attack,e.target.value as PokemonType,secondary,stab)}>{TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></label><label>Secondary type<select value={secondary} onChange={e=>update(attack,defender,e.target.value as PokemonType|'',stab)}><option value="">None</option>{TYPES.filter(t=>t!==defender).map(t=><option key={t} value={t}>{t}</option>)}</select></label></div><button className="swap-button" onClick={()=>update(defender,attack,'',false)}><ArrowLeftRight size={15}/> Swap primary types <small>Clears secondary & bonus</small></button></div></section><section className="lab-result" aria-live="polite" aria-atomic="true"><div className="eyebrow">TYPE EFFECTIVENESS</div><div className="result-matchup"><TypeBadge type={attack}/><ArrowRight size={20}/><div className="types">{selected.map(t=><TypeBadge key={t} type={t}/>)}</div></div><div className={`big-multiplier ${multiplier===0?'zero':''}`}>{multiplier}<span>×</span></div><h2>{effectivenessLabel(multiplier)}</h2><p>{selected.map(t=>`${chart[attack][t]}× vs ${t}`).join(' × ')}</p>{stab&&<div className="stab-result"><span>Including same-type attack bonus</span><strong>{multiplier*1.5}×</strong></div>}<div className="result-note">{multiplier===0?'An immunity takes priority, even when the other type is weak to the move.':multiplier>=4?'Both defending types are weak to this move. Their weaknesses multiply.':multiplier<1?'The defending type combination reduces damage from this move.':'Dual-type effectiveness is the product of the two individual matchups.'}</div></section></div><div className="section-heading"><h2>The defensive picture</h2><span>All incoming move types against {selected.join(' / ')}</span></div><div className="defense-groups">{groups.map(g=><section className={`panel defense-group ${g.style}`} key={g.name}><h3>{g.name} <span>{g.hint}</span></h3><div>{g.rows.length?g.rows.map(r=><div className="defense-row" key={r.type}><TypeBadge type={r.type}/><strong>{r.multiplier}×</strong></div>):<p className="panel-note">None for this combination.</p>}</div></section>)}</div><details className="neutral-types"><summary>Normal damage · {all.filter(r=>r.multiplier===1).length} types</summary><div className="types">{all.filter(r=>r.multiplier===1).map(r=><TypeBadge key={r.type} type={r.type}/>)}</div></details><p className="lab-disclaimer">This is a type-effectiveness calculator, not a full damage simulator. Abilities, items, weather, move-specific exceptions, Terastallization, and battle stats are not included. Matchups come from PokéAPI’s current standard type chart.</p></div>;
+  const selected = secondary ? [defender, secondary] : [defender];
+  const multiplier = effectiveness(chart, attack, selected);
+  const all = defenses(chart, selected);
+  const groups = [
+    {
+      name: 'Weak to',
+      hint: 'More damage',
+      rows: all.filter((r) => r.multiplier > 1),
+      style: 'weak',
+    },
+    {
+      name: 'Resists',
+      hint: 'Less damage',
+      rows: all.filter((r) => r.multiplier > 0 && r.multiplier < 1),
+      style: 'resist',
+    },
+    {
+      name: 'Immune to',
+      hint: 'No damage',
+      rows: all.filter((r) => r.multiplier === 0),
+      style: 'immune',
+    },
+  ];
+  return (
+    <div className="page lab-page">
+      <div className="eyebrow">
+        <FlaskConical size={15} /> THE TYPE LAB
+      </div>
+      <div className="lab-heading">
+        <div>
+          <h1>
+            Find your <em>advantage.</em>
+          </h1>
+          <p>One move. Two defending types. Every possibility.</p>
+        </div>
+        <span className="rules-tag">Standard type chart · Gen VI onward</span>
+      </div>
+      <div className="lab-workspace">
+        <section className="panel lab-controls">
+          <div className="control-heading">
+            <Swords size={18} />
+            <h2>Attacking move</h2>
+          </div>
+          <label className="field-label" htmlFor="attack">
+            Move type
+          </label>
+          <select
+            id="attack"
+            value={attack}
+            onChange={(e) =>
+              update(e.target.value as PokemonType, defender, secondary, stab)
+            }
+          >
+            {TYPES.map((t) => (
+              <option value={t} key={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <div className="type-picker" aria-label="Choose attacking type">
+            {TYPES.map((t) => (
+              <button
+                key={t}
+                className={attack === t ? 'selected' : ''}
+                aria-pressed={attack === t}
+                onClick={() => update(t, defender, secondary, stab)}
+              >
+                <TypeBadge type={t} />
+              </button>
+            ))}
+          </div>
+          <label className="stab-toggle">
+            <input
+              type="checkbox"
+              checked={stab}
+              onChange={(e) =>
+                update(attack, defender, secondary, e.target.checked)
+              }
+            />
+            <span>
+              Same-type attack bonus{' '}
+              <small>Attacker shares the move’s type · 1.5×</small>
+            </span>
+          </label>
+          <div className="defending-controls">
+            <div className="control-heading">
+              <Shield size={18} />
+              <h2>Defending Pokémon</h2>
+            </div>
+            <div className="defender-selects">
+              <label>
+                Primary type
+                <select
+                  value={defender}
+                  onChange={(e) =>
+                    update(
+                      attack,
+                      e.target.value as PokemonType,
+                      secondary,
+                      stab,
+                    )
+                  }
+                >
+                  {TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Secondary type
+                <select
+                  value={secondary}
+                  onChange={(e) =>
+                    update(
+                      attack,
+                      defender,
+                      e.target.value as PokemonType | '',
+                      stab,
+                    )
+                  }
+                >
+                  <option value="">None</option>
+                  {TYPES.filter((t) => t !== defender).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button
+              className="swap-button"
+              onClick={() => update(defender, attack, '', false)}
+            >
+              <ArrowLeftRight size={15} /> Swap primary types{' '}
+              <small>Clears secondary & bonus</small>
+            </button>
+          </div>
+        </section>
+        <section className="lab-result" aria-live="polite" aria-atomic="true">
+          <div className="eyebrow">TYPE EFFECTIVENESS</div>
+          <div className="result-matchup">
+            <TypeBadge type={attack} />
+            <ArrowRight size={20} />
+            <div className="types">
+              {selected.map((t) => (
+                <TypeBadge key={t} type={t} />
+              ))}
+            </div>
+          </div>
+          <div className={`big-multiplier ${multiplier === 0 ? 'zero' : ''}`}>
+            {multiplier}
+            <span>×</span>
+          </div>
+          <h2>{effectivenessLabel(multiplier)}</h2>
+          <p>
+            {selected.map((t) => `${chart[attack][t]}× vs ${t}`).join(' × ')}
+          </p>
+          {stab && (
+            <div className="stab-result">
+              <span>Including same-type attack bonus</span>
+              <strong>{multiplier * 1.5}×</strong>
+            </div>
+          )}
+          <div className="result-note">
+            {multiplier === 0
+              ? 'An immunity takes priority, even when the other type is weak to the move.'
+              : multiplier >= 4
+                ? 'Both defending types are weak to this move. Their weaknesses multiply.'
+                : multiplier < 1
+                  ? 'The defending type combination reduces damage from this move.'
+                  : 'Dual-type effectiveness is the product of the two individual matchups.'}
+          </div>
+        </section>
+      </div>
+      <div className="section-heading">
+        <h2>The defensive picture</h2>
+        <span>All incoming move types against {selected.join(' / ')}</span>
+      </div>
+      <div className="defense-groups">
+        {groups.map((g) => (
+          <section className={`panel defense-group ${g.style}`} key={g.name}>
+            <h3>
+              {g.name} <span>{g.hint}</span>
+            </h3>
+            <div>
+              {g.rows.length ? (
+                g.rows.map((r) => (
+                  <div className="defense-row" key={r.type}>
+                    <TypeBadge type={r.type} />
+                    <strong>{r.multiplier}×</strong>
+                  </div>
+                ))
+              ) : (
+                <p className="panel-note">None for this combination.</p>
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+      <details className="neutral-types">
+        <summary>
+          Normal damage · {all.filter((r) => r.multiplier === 1).length} types
+        </summary>
+        <div className="types">
+          {all
+            .filter((r) => r.multiplier === 1)
+            .map((r) => (
+              <TypeBadge key={r.type} type={r.type} />
+            ))}
+        </div>
+      </details>
+      <p className="lab-disclaimer">
+        This is a type-effectiveness calculator, not a full damage simulator.
+        Abilities, items, weather, move-specific exceptions, Terastallization,
+        and battle stats are not included. Matchups come from PokéAPI’s current
+        standard type chart.
+      </p>
+    </div>
+  );
 }

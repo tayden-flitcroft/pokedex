@@ -1,0 +1,6 @@
+node_modules
+.next
+assets
+dist
+package-lock.json
+next-env.d.ts
